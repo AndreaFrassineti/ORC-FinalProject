@@ -1,1 +1,1 @@
-
+This Repo presents the development and evaluation of Project B, titled "Learning a Terminal Constraint Set". The core objective of this project is to approximate a control-invariant set using a neural network and to utilize this approximation as a terminal constraint within a Model Predictive Control (MPC) framework, in order to ensure recursive feasibility.
