@@ -7,9 +7,9 @@ def plot_dataset(filename):
     y = data['y']
     
     plt.figure(figsize=(10, 6))
-    # Punti non fattibili (0) in rosso
+    # Unfeasible points (0) in red
     plt.scatter(x[y==0, 0], x[y==0, 1], c='red', s=5, label='Infeasible (0)', alpha=0.3)
-    # Punti fattibili (1) in verde
+    # Feasible points (1) in green
     plt.scatter(x[y==1, 0], x[y==1, 1], c='green', s=5, label='Feasible (1)', alpha=0.6)
     
     plt.xlabel('Joint Position (q) [rad]')
@@ -20,4 +20,4 @@ def plot_dataset(filename):
     plt.show()
 
 # Esempio d'uso
-# plot_dataset('data/dataset_pendulum.npz')
+plot_dataset('data/dataset_pendulum.npz')

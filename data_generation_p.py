@@ -26,7 +26,6 @@ def generate_dataset(n_samples=1000, N=20):
 
     # 2. Symbolic Dynamic Definition
     # Used because we need symbolic expressions for the optimizer
-
     q = cs.SX.sym('q')
     dq = cs.SX.sym('dq')
     u = cs.SX.sym('u')
@@ -92,11 +91,10 @@ def generate_dataset(n_samples=1000, N=20):
             print(f"Progress: {i+1}/{n_samples}")
 
     # Save the dataset
-    np.savez('dataset_pendulum.pt', x=np.array(data_x), y=np.array(data_y))
-    print("Dataset saved as 'dataset_pendulum.pt'")
-    filepath = os.path.join(folder, 'dataset_pendulum.pt')
+    filepath = os.path.join(folder, 'dataset_pendulum.npz')
     np.savez(filepath, x=np.array(data_x), y=np.array(data_y))
     print(f"Dataset saved in: {filepath}")
+    print("Dataset saved!")
 
 if __name__ == "__main__":
     generate_dataset()

@@ -5,7 +5,7 @@ import numpy as np
 from pendulum import Pendulum 
 import os
 
-def generate_dataset_double(n_samples=2000, N=30):
+def generate_dataset_double(n_samples=5000, N=50):
     # 0. Create data folder if it doesn't exist
     folder = "data"
     if not os.path.exists(folder):
@@ -95,11 +95,12 @@ def generate_dataset_double(n_samples=2000, N=30):
         if (i+1) % 100 == 0:
             print(f"Progress: {i+1}/{n_samples} | Label 1 Find: {sum(data_y)}")
 
-    np.savez('dataset_double_pendulum.pt', x=np.array(data_x), y=np.array(data_y))
+    
     print("Dataset saved!")
-    filepath = os.path.join(folder, 'dataset_double_pendulum.pt')
+    filepath = os.path.join(folder, 'dataset_double_pendulum.npz')
     np.savez(filepath, x=np.array(data_x), y=np.array(data_y))
     print(f"Dataset saved in: {filepath}")
+    print("Dataset saved!")
 
 if __name__ == "__main__":
     generate_dataset_double()

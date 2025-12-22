@@ -17,7 +17,7 @@ def check_double_pendulum_data(filepath='data/dataset_double_pendulum.npz'):
 
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
 
-    # Grafico 1: Primo giunto (q1 vs dq1)
+    # Plot 1: First joint (q1 vs dq1)
     ax[0].scatter(x[y==0, 0], x[y==0, 2], c='red', s=2, alpha=0.3, label='Unsafe')
     ax[0].scatter(x[y==1, 0], x[y==1, 2], c='green', s=5, alpha=0.6, label='Safe')
     ax[0].set_title('Giunto 1: Posizione vs Velocità')
@@ -25,7 +25,7 @@ def check_double_pendulum_data(filepath='data/dataset_double_pendulum.npz'):
     ax[0].set_ylabel('dq1 [rad/s]')
     ax[0].legend()
 
-    # Grafico 2: Secondo giunto (q2 vs dq2)
+    # Plot 2: Second joint (q2 vs dq2)
     ax[1].scatter(x[y==0, 1], x[y==0, 3], c='red', s=2, alpha=0.3, label='Unsafe')
     ax[1].scatter(x[y==1, 1], x[y==1, 3], c='green', s=5, alpha=0.6, label='Safe')
     ax[1].set_title('Giunto 2: Posizione vs Velocità')
