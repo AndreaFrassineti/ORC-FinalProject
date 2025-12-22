@@ -8,8 +8,14 @@ import casadi as cs
 import numpy as np
 import torch
 from pendulum import Pendulum # Import parameters from pendulum.py
+import os
 
 def generate_dataset(n_samples=1000, N=20):
+
+    # 0. Create data folder if it doesn't exist
+    folder = "data"
+    if not os.path.exists(folder):
+        os.makedirs(folder) 
     # 1. Parameters Inizialization from pendulum.py environment
     env = Pendulum(nbJoint=1)
     dt = env.DT
@@ -88,6 +94,9 @@ def generate_dataset(n_samples=1000, N=20):
     # Save the dataset
     np.savez('dataset_pendulum.pt', x=np.array(data_x), y=np.array(data_y))
     print("Dataset saved as 'dataset_pendulum.pt'")
+    filepath = os.path.join(folder, 'dataset_pendulum.pt')
+    np.savez(filepath, x=np.array(data_x), y=np.array(data_y))
+    print(f"Dataset saved in: {filepath}")
 
 if __name__ == "__main__":
     generate_dataset()

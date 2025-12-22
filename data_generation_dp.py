@@ -3,8 +3,14 @@
 import casadi as cs
 import numpy as np
 from pendulum import Pendulum 
+import os
 
 def generate_dataset_double(n_samples=2000, N=30):
+    # 0. Create data folder if it doesn't exist
+    folder = "data"
+    if not os.path.exists(folder):
+        os.makedirs(folder) 
+
     # 1. Inizialization of parameters from pendulum.py
     env = Pendulum(nbJoint=2)
     dt = env.DT
@@ -91,6 +97,9 @@ def generate_dataset_double(n_samples=2000, N=30):
 
     np.savez('dataset_double_pendulum.pt', x=np.array(data_x), y=np.array(data_y))
     print("Dataset saved!")
+    filepath = os.path.join(folder, 'dataset_double_pendulum.pt')
+    np.savez(filepath, x=np.array(data_x), y=np.array(data_y))
+    print(f"Dataset saved in: {filepath}")
 
 if __name__ == "__main__":
     generate_dataset_double()
