@@ -67,7 +67,7 @@ def generate_dataset(n_samples=1000, N=20):
             return 0 # Outside the set
 
     # 4. Sampling loop 
-    print(f"Generazione di {n_samples} campioni...")
+    print(f"Generation of {n_samples} samples...")
     data_x = []
     data_y = []
 
@@ -83,11 +83,11 @@ def generate_dataset(n_samples=1000, N=20):
         data_y.append(label)
         
         if (i+1) % 100 == 0:
-            print(f"Progresso: {i+1}/{n_samples}")
+            print(f"Progress: {i+1}/{n_samples}")
 
     # Save the dataset
     np.savez('dataset_pendulum.pt', x=np.array(data_x), y=np.array(data_y))
-    print("Dataset salvato come 'dataset_pendulum.pt'")
+    print("Dataset saved as 'dataset_pendulum.pt'")
 
 if __name__ == "__main__":
     generate_dataset()
