@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 def plot_dataset(filename):
     data = np.load(filename)
@@ -19,5 +20,9 @@ def plot_dataset(filename):
     plt.grid(True)
     plt.show()
 
-# Esempio d'uso
-plot_dataset('data/dataset_pendulum.npz')
+# Plot the dataset
+if __name__ == "__main__":
+    plot_dataset('data/dataset_p_25.npz')
+    plot_dataset('data/dataset_p_50.npz')
+    plot_dataset('data/dataset_p_100.npz')
+    plot_dataset('data/dataset_p_200.npz') 

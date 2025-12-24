@@ -10,7 +10,7 @@ import torch
 from pendulum import Pendulum # Import parameters from pendulum.py
 import os
 
-def generate_dataset(n_samples=1000, N=20):
+def generate_dataset(n_samples=5000, N=200):
 
     # 0. Create data folder if it doesn't exist
     folder = "data"
@@ -91,10 +91,11 @@ def generate_dataset(n_samples=1000, N=20):
             print(f"Progress: {i+1}/{n_samples}")
 
     # Save the dataset
-    filepath = os.path.join(folder, 'dataset_pendulum.npz')
+    filename = f'dataset_p_{N}.npz'
+    filepath = os.path.join(folder, filename)
     np.savez(filepath, x=np.array(data_x), y=np.array(data_y))
     print(f"Dataset saved in: {filepath}")
-    print("Dataset saved!")
+    
 
 if __name__ == "__main__":
     generate_dataset()

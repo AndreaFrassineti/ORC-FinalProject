@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+from casadi import MX, Function
+import l4casadi as l4c
 
     
 class NeuralNetwork(nn.Module):
@@ -12,7 +14,7 @@ class NeuralNetwork(nn.Module):
             nn.Linear(hidden_size, hidden_size),
             activation,
             nn.Linear(hidden_size, output_size),
-            activation,
+            activation, 
         )
         self.ub = ub if ub is not None else 1 # upper bound of the output layer
         self.initialize_weights()
@@ -28,9 +30,7 @@ class NeuralNetwork(nn.Module):
                 nn.init.zeros_(layer.bias) 
 
     def create_casadi_function(self, robot_name, NN_DIR, input_size, load_weights):
-        from casadi import MX, Function
-        import l4casadi as l4c
-
+        
         # if load_weights is True, we load the neural-network weights from a ".pt" file
         if(load_weights):
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

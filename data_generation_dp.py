@@ -96,11 +96,11 @@ def generate_dataset_double(n_samples=5000, N=50):
             print(f"Progress: {i+1}/{n_samples} | Label 1 Find: {sum(data_y)}")
 
     
-    print("Dataset saved!")
-    filepath = os.path.join(folder, 'dataset_double_pendulum.npz')
+    # Save the dataset
+    filename = f'dataset_p_{N}.npz'
+    filepath = os.path.join(folder, filename)
     np.savez(filepath, x=np.array(data_x), y=np.array(data_y))
     print(f"Dataset saved in: {filepath}")
-    print("Dataset saved!")
 
 if __name__ == "__main__":
     generate_dataset_double()
