@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from casadi import MX, Function
-import l4casadi as l4c
+
 
     
 class NeuralNetwork(nn.Module):
@@ -30,6 +30,7 @@ class NeuralNetwork(nn.Module):
                 nn.init.zeros_(layer.bias) 
 
     def create_casadi_function(self, robot_name, NN_DIR, input_size, load_weights):
+        import l4casadi as l4c
         
         # if load_weights is True, we load the neural-network weights from a ".pt" file
         if(load_weights):
