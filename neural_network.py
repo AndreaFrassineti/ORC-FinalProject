@@ -20,6 +20,7 @@ class NeuralNetwork(nn.Module):
         self.initialize_weights()
 
     def forward(self, x):
+        x = x.view(-1, 2) # In order to flatten the input
         out = self.linear_stack(x) * self.ub
         return out
    

@@ -29,7 +29,7 @@ def compare_4_nn_models(model_files, input_dim=2):
             continue
 
         # Caricamento modello
-        model = NeuralNetwork(input_size=input_dim, hidden_size=64, output_size=1)
+        model = NeuralNetwork(input_size=input_dim, hidden_size=32, output_size=1)
         checkpoint = torch.load(model_path, map_location='cpu')
         model.load_state_dict(checkpoint['model'])
         model.eval()

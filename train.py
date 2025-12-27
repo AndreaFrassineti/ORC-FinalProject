@@ -23,7 +23,7 @@ def train_viability_model(dataset_path, model_save_name, epochs=50, batch_size=1
     # 2. Initialize the Network
     # Input_size: 2 for single pendulum, 4 for double pendulum
     input_dim = X.shape[1] 
-    model = NeuralNetwork(input_size=input_dim, hidden_size=64, output_size=1)
+    model = NeuralNetwork(input_size=input_dim, hidden_size=32, output_size=1)
     
     # Define the optimizer and loss function
     optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -70,14 +70,14 @@ def train_viability_model(dataset_path, model_save_name, epochs=50, batch_size=1
     print(f"Training completed! Model saved at: {save_path}")
 
 if __name__ == "__main__":
-    # EXAMPLE FOR SINGLE PENDULUM (N=200)
+    # EXAMPLE FOR SINGLE PENDULUM (N=100)
     train_viability_model(
-        dataset_path='data/dataset_p_200.npz', 
-        model_save_name='model_p_200.pt'
+        dataset_path='data/dataset_p_100.npz', 
+        model_save_name='model_p_100.pt'
     )
     
     # EXAMPLE FOR DOUBLE PENDULUM
     # train_viability_model(
-    #     dataset_path='data/dataset_dp_200.npz', 
+    #     dataset_path='data/dataset_dp_50.npz', 
     #     model_save_name='model_dp.pt'
     # )
