@@ -10,7 +10,7 @@ import torch
 from pendulum import Pendulum # Import parameters from pendulum.py
 import os
 
-def generate_dataset(n_samples=5000, N=200):
+def generate_dataset(n_samples=5000, N=25):
 
     # 0. Create data folder if it doesn't exist
     folder = "data"

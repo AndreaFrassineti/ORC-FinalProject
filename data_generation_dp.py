@@ -5,7 +5,7 @@ import numpy as np
 from pendulum import Pendulum 
 import os
 
-def generate_dataset_double(n_samples=5000, N=100):
+def generate_dataset_double(n_samples=5000, N=25):
     # 0. Create data folder if it doesn't exist
     folder = "data"
     if not os.path.exists(folder):
