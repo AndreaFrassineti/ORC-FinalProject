@@ -10,7 +10,7 @@ import torch
 from pendulum import Pendulum # Import parameters from pendulum.py
 import os
 
-def generate_dataset(n_samples=5000, N=25):
+def generate_dataset(n_samples=5000, N=200):
 
     # 0. Create data folder if it doesn't exist
     folder = "data"
@@ -31,14 +31,15 @@ def generate_dataset(n_samples=5000, N=25):
     u = cs.SX.sym('u')
     
     # ml^2 * q_ddot + mgl*sin(q) = u - Kf*dq
-    q_ddot = (u - env.Kf * dq - m * g * l * cs.sin(q)) / (m * l**2)
+    I_joint = (m/5 * l**2) + m * (l/2)**2 
+    q_ddot = (u - env.Kf * dq - m * g * (l/2) * cs.sin(q)) / I_joint
     x = cs.vertcat(q, dq)
     x_dot = cs.vertcat(dq, q_ddot)
     
     # Euler integration
     f = cs.Function('f', [x, u], [x + x_dot * dt])
 
-    # 3. Funzione per risolvere l'OCP di fattibilità 
+    # 3. Function to solve the feasibility OCP
     def solve_ocp_feasibility(x_init):
         opti = cs.Opti()
         X = opti.variable(2, N+1)
