@@ -31,20 +31,16 @@ To approximate the backward reachable set:
 2. **Label each state** as 0 (outside the set) or 1 (inside the set).
 3. **Train a neural network** to classify states as inside or outside the set.
 
-## Model Predictive Control (MPC)
+## MPC
 MPC is an optimization-based control strategy that computes control inputs by solving a constrained optimization problem over a finite horizon at each time step. It ensures that the system respects constraints while optimizing a performance criterion.
 
 In this project, we incorporate the learned neural network into the MPC **terminal constraint** to improve recursive feasibility. This ensures that the system remains within a feasible region where a valid control sequence exists.
 
-## Implementation Details
+## Implementation 
 - **System:** Single pendulum → Double pendulum
 - **Cost function:** Encourages reaching a joint configuration near limits while **minimally penalizing** velocities and torques.
 - **Constraints:** Enforced using the learned invariant set.
 
 ## Results
-All the result obtained are well explainde in the report upload on this same folder.
+All the result obtained are explained in the report.
 
-## Future Work
-- Extend to more complex robotic systems
-- Improve classification accuracy of the neural network
-- Explore different cost function formulations

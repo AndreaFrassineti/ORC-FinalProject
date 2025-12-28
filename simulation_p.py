@@ -14,7 +14,7 @@ def main():
     # Choose the model N=100 that we saw being solid in training
     model_path = 'models/model_p_100.pt'
     
-    # Initialize the CasADi optimizer
+    # Initialize the CasADi optimizerx
     opti, x_init_param, u_var = run_mpc_control(model_path, n_steps=20)
     
     # 2. Initial Conditions

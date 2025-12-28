@@ -49,7 +49,7 @@ class Pendulum:
 
     def __init__(self, nbJoint=1, noise_stddev=0.0, which_viewer='meshcat', open_viewer=True):
         '''Create a Pinocchio model of a N-pendulum, with N the argument <nbJoint>.'''
-        self.viewer     = Display(which_viewer, open_viewer=open_viewer)
+        self.viewer     = Display(which_viewer)
         self.visuals    = []
         self.model      = pin.Model()
         self.createPendulum(nbJoint)
@@ -100,58 +100,6 @@ class Pendulum:
         for visual in self.visuals:
             visual.place( self.viewer, self.data.oMi[visual.jointParent] )
         self.viewer.refresh()
-    
-    def dynamics_step_casadi(self, x, u):
-        import casadi as ca
-    
-        # x[0] è l'angolo (q), x[1] è la velocità (dq)
-        q = x[0]
-        dq = x[1]
-    
-        # Parametri fisici (assicurati che siano uguali a quelli usati per il training)
-        g = 9.81
-        l = 1.0
-        m = 1.0
-        dt = 0.05 
-    
-        # Calcolo dell'accelerazione angolare (ddq)
-        # Coppia - Gravità = Inerzia * accelerazione
-        ddq = (u - m * g * l * ca.sin(q)) / (m * l**2)
-    
-        # Integrazione di Eulero (Versione Simbolica)
-        next_q = q + dq * dt
-        next_dq = dq + ddq * dt
-
-        # Restituisce un vettore colonna CasADi
-        return ca.vertcat(next_q, next_dq)
-    
-    def dynamics_step(self, x, u, dt=None):
-        """ Versione numerica per l'integrazione dello stato durante la simulazione """
-        if dt is None:
-            dt = self.DT
-        
-        # Estraiamo i valori numerici
-        q = x[0]
-        dq = x[1]
-    
-        # Parametri fisici coerenti
-        g = 9.81
-        l = 1.0
-        m = 1.0
-    
-        # Calcolo accelerazione (ddq)
-        # Clipping della coppia come nella dinamica reale
-        u = np.clip(u, -self.umax, self.umax)
-        ddq = (u - m * g * l * np.sin(q)) / (m * l**2)
-    
-        # Integrazione di Eulero
-        new_q = q + dq * dt
-        new_dq = dq + ddq * dt
-    
-        # Normalizzazione angolo tra -pi e pi
-        new_q = (new_q + np.pi) % (2 * np.pi) - np.pi
-    
-        return np.array([new_q, new_dq])
 
     ''' Size of the q vector '''
     @property 

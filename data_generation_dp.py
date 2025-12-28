@@ -5,7 +5,7 @@ import numpy as np
 from pendulum import Pendulum 
 import os
 
-def generate_dataset_double(n_samples=5000, N=50):
+def generate_dataset_double(n_samples=5000, N=100):
     # 0. Create data folder if it doesn't exist
     folder = "data"
     if not os.path.exists(folder):
@@ -97,7 +97,7 @@ def generate_dataset_double(n_samples=5000, N=50):
 
     
     # Save the dataset
-    filename = f'dataset_p_{N}.npz'
+    filename = f'dataset_dp_{N}.npz'
     filepath = os.path.join(folder, filename)
     np.savez(filepath, x=np.array(data_x), y=np.array(data_y))
     print(f"Dataset saved in: {filepath}")
