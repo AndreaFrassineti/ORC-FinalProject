@@ -8,7 +8,7 @@ from example_robot_data import load
 from adam.casadi.computations import KinDynComputations
 import os
 
-def generate_dataset_double(n_samples=5000, N=10):
+def generate_dataset_double(n_samples=5000, N=100):
     # 0. Create data folder if it doesn't exist
     folder = "data"
     if not os.path.exists(folder):

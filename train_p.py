@@ -70,13 +70,13 @@ def train_viability_model(dataset_path, model_save_name, epochs=50, batch_size=1
     print(f"Training completed! Model saved at: {save_path}")
 
 if __name__ == "__main__":
-    # EXAMPLE FOR SINGLE PENDULUM (N=100)
+    # FOR SINGLE PENDULUM (N=100)
     train_viability_model(
         dataset_path='data/dataset_p_100.npz', 
         model_save_name='model_p_100.pt'
     )
     
-    # EXAMPLE FOR DOUBLE PENDULUM
+    # FOR DOUBLE PENDULUM
     # train_viability_model(
     #     dataset_path='data/dataset_dp_50.npz', 
     #     model_save_name='model_dp.pt'
