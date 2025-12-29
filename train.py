@@ -60,24 +60,34 @@ def train_viability_model(dataset_path, model_save_name, epochs=50, batch_size=1
         if (epoch + 1) % 100 == 0:
             print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/(X.size(0)/batch_size):.6f}")
 
-    # 4. Save the model
-    if not os.path.exists('models'):
-        os.makedirs('models')
-    
-    save_path = os.path.join('models', model_save_name)
-    # The format required by your 'load_weights' function in neural_network.py
-    torch.save({'model': model.state_dict()}, save_path)
-    print(f"Training completed! Model saved at: {save_path}")
+
+def train_everything():
+    # Define the training tasks
+    tasks = [
+        # Dataset SINGLE PENDULUM
+        {"path": "data/dataset_p_25.npz",  "model": "model_p_25.pt",  "epochs": 50},
+        {"path": "data/dataset_p_50.npz",  "model": "model_p_50.pt",  "epochs": 50},
+        {"path": "data/dataset_p_100.npz", "model": "model_p_100.pt", "epochs": 50},
+        {"path": "data/dataset_p_200.npz",  "model": "model_p_200.pt",  "epochs": 50},
+        
+        # Dataset DOUBLE PENDULUM
+        {"path": "data/dataset_dp_25.npz", "model": "model_dp_25.pt", "epochs": 50},
+        {"path": "data/dataset_dp_50.npz", "model": "model_dp_50.pt", "epochs": 50},
+        {"path": "data/dataset_dp_100.npz","model": "model_dp_100.pt","epochs": 50},
+        {"path": "data/dataset_dp_200.npz", "model": "model_dp_200.pt", "epochs": 50},
+    ]
+
+    for task in tasks:
+        if os.path.exists(task["path"]):
+            print(f"\n>>> Training started for: {task['model']}")
+            train_viability_model(
+                dataset_path=task["path"],
+                model_save_name=task["model"],
+                epochs=task["epochs"],
+                batch_size=128
+            )
+        else:
+            print(f"\n[Skipped] Dataset not found: {task['path']}")
 
 if __name__ == "__main__":
-    # FOR SINGLE PENDULUM (N=100)
-    train_viability_model(
-        dataset_path='data/dataset_p_100.npz', 
-        model_save_name='model_p_100.pt'
-    )
-    
-    # FOR DOUBLE PENDULUM
-    # train_viability_model(
-    #     dataset_path='data/dataset_dp_50.npz', 
-    #     model_save_name='model_dp.pt'
-    # )
+    train_everything()
