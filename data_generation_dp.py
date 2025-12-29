@@ -8,7 +8,62 @@ from example_robot_data import load
 from adam.casadi.computations import KinDynComputations
 import os
 
-def generate_dataset_double(n_samples=5000, N=100):
+
+
+def build_ocp_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx):
+    # Setup base robot (come prima)
+    # ... (caricamento robot, funzioni f e inv_dyn come nel tuo codice) ...
+    # Assumo tu abbia già definito 'f', 'inv_dyn', 'tau_min', 'tau_max', 'lbx', 'ubx', etc.
+    
+    opti = cs.Opti()
+    
+    # Variabili di ottimizzazione
+    X = opti.variable(nx, N+1)
+    U = opti.variable(nu, N)
+    
+    # parametrize x_init
+    P_init = opti.parameter(nx) 
+    
+    # dynamics constraints
+    for i in range(N):
+        opti.subject_to(X[:, i+1] == f(X[:, i], U[:, i]))
+        # add torque constraint
+        opti.subject_to(opti.bounded(tau_min, inv_dyn(X[:, i], U[:, i]), tau_max))
+
+    # Initial constraint: X0 must be equal to the parameter P_init
+    opti.subject_to(X[:, 0] == P_init)
+    
+    # Terminal constraint (set S): both joint velocities are zero at final time
+    opti.subject_to(X[nv:, N] == 0)
+    
+    # create a final state equal to 0
+    q_final = X[:nq, N]
+    v_zero  = cs.MX.zeros(nv)
+    a_zero  = cs.MX.zeros(nv)
+    x_final_static = cs.vertcat(q_final, v_zero)
+    # find the value of the torque to have a zero final state and acceleration
+    tau_hold = inv_dyn(x_final_static, a_zero)
+    # this torque must be within th torque limits
+    opti.subject_to(opti.bounded(tau_min, tau_hold, tau_max))
+    
+    # Bounds on joint position and velocity
+    # we don't limit X[0], because it's the initial sampled state 
+    # X[:, 1:] take each row (pos+vel) and every column except of column 0 (state at 0)
+    opti.subject_to(opti.bounded(lbx, X[:, 1:], ubx))
+    
+    # Cost function
+    opti.minimize(1) 
+    
+    
+    opts = {'ipopt.print_level': 0, 'print_time': 0, 'ipopt.tol': 1e-3, 'detect_simple_bounds': True}
+    opti.solver('ipopt', opts)
+    
+    
+    return opti, P_init, X, U
+
+
+def generate_dataset_double(n_samples=5000, N=50):
+
     # 0. Create data folder if it doesn't exist
     folder = "data"
     if not os.path.exists(folder):
@@ -37,7 +92,7 @@ def generate_dataset_double(n_samples=5000, N=100):
     qMin = np.array([-2.0*np.pi, -2.0*np.pi])
     qMax = -qMin
 
-    vMax = np.array([8.0, 8.0])
+    vMax = np.array([10.0, 10.0])
     vMin = -vMax
 
 
@@ -74,7 +129,7 @@ def generate_dataset_double(n_samples=5000, N=100):
     # I know that if I have tauMax >= total_torque, all the x axis (q = 0) is control inariant,
     #to complicate the things I apply a scaling factor so in some states the double pendulum isn't able to compenstate its weight
     
-    Torque_scaling = 0.8 
+    Torque_scaling = 0.5
     tauMax = np.array([total_torque * Torque_scaling, total_torque * Torque_scaling ])
     tauMin = -tauMax
 
@@ -107,64 +162,67 @@ def generate_dataset_double(n_samples=5000, N=100):
     tau_min = tauMin.tolist()  # torque lower bounds
     tau_max = tauMax.tolist()  # torque upper bounds
 
-
-    
-    # 3. OCP feasibility solver
-
-    def solve_ocp_double(x_init):
-        opti = cs.Opti()
-        X = opti.variable(nx, N+1)
-        U = opti.variable(nu, N)
-
-        # Dynamics constraints
-        for i in range(N):
-            opti.subject_to(X[:, i+1] == f(X[:, i], U[:, i]))
-            
-            # Add torque constraints
-            opti.subject_to( opti.bounded(tau_min, inv_dyn(X[i], U[i]), tau_max))
-
-        # Initial constraint: x_0 = x_init
-        opti.subject_to(X[:, 0] == x_init)
         
-        # Terminal constraint (set S): both joint velocities are zero at final time
-        opti.subject_to(X[nv:, N] == 0)
 
-        # Bounds on joint position and velocity
-        # we don't limit X[0], because it's the initial sampled state 
-        # X[:nq, 1:] take first 2 row (pos) and every column except of column 0 (pos 0)
-        # X[nq:, 1:] take last 2 row (vel) and every column except of column 0 (vel 0)
-        
-        opti.subject_to(opti.bounded(-qMax, X[:nq, 1:], qMax))
-        opti.subject_to(opti.bounded(-vMax, X[nq:, 1:], vMax))
+    # 4. Sampling loop
 
-        opti.minimize(1)
-        opts = {'ipopt.print_level': 0, 'print_time': 0, 'ipopt.tol': 1e-3, 'detect_simple_bounds': True}
-        opti.solver('ipopt', opts)
+    print("Construction of the OCP solver")
+    opti, param_x_init, X_var, U_var = build_ocp_solver(
+        N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx)
 
-        try:
-            opti.solve()
-            return 1
-        except:
-            return 0
-
-    # 4. Sampling loop ( q1, q2 in [-pi, pi], dq1, dq2 in [-vmax, vmax])
     print(f"Dataset generation double pendulum ({n_samples} samples)...")
     data_x, data_y = [], []
 
+    import time
+    start_time = time.time()
+
+
+
+
     for i in range(n_samples):
-        # Sampling q1, q2 in [-pi, pi] and dq1, dq2 in [-vmax, vmax]
+        # Random sampling
         q_rand = np.random.uniform(-qMax, qMax)
         dq_rand = np.random.uniform(-vMax, vMax)
         x_start = np.concatenate([q_rand, dq_rand])
         
-        label = solve_ocp_double(x_start)
+        # set the value of the parameter to the generated random state
+        opti.set_value(param_x_init, x_start)
+
+        
+        
+        scaling_factor = np.linspace(1.0, 0.0, N + 1)
+
+        # 2. Posizione: Assumiamo costante (o potresti interpolare anche questa)
+        # q_init ha shape (nq,), lo facciamo diventare (nq, N+1)
+        q_guess = np.tile(x_start[:nq].reshape(-1, 1), (1, N + 1))
+
+        # 3. Velocità: Scaliamo la velocità iniziale verso zero
+        # dq_init * scaling_factor
+        dq_guess = x_start[nq:].reshape(-1, 1) * scaling_factor.reshape(1, -1)
+
+        # 4. Uniamo tutto
+        x_guess = np.vstack((q_guess, dq_guess))
+
+        # 5. Assegna in un colpo solo
+        opti.set_initial(X_var, x_guess)
+        opti.set_initial(U_var, 0.0)
+        
+
+        # 3. Solve
+        try:
+            opti.solve()
+            label = 1
+        except:
+            label = 0
+        
         data_x.append(x_start)
         data_y.append(label)
         
         if (i+1) % 100 == 0:
-            print(f"Progress: {i+1}/{n_samples} | Label 1 Find: {sum(data_y)}")
+            elapsed = time.time() - start_time
+            print(f"Progress: {i+1}/{n_samples} | Label 1 Find: {sum(data_y)} | Time: {elapsed:.1f} s")
 
-    
+
     # Save the dataset
     filename = f'dataset_dp_{N}.npz'
     filepath = os.path.join(folder, filename)
