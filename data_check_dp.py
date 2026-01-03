@@ -38,4 +38,4 @@ def check_double_pendulum_data(filepath='data/dataset_dp_N.npz'):
 
 # Plot the dataset
 if __name__ == "__main__":
-    check_double_pendulum_data('data/dataset_dp_200.npz')
+    check_double_pendulum_data('data/dataset_dp_25.npz')

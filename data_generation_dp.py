@@ -10,14 +10,11 @@ import os
 
 
 
-def build_ocp_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx):
-    # Setup base robot (come prima)
-    # ... (caricamento robot, funzioni f e inv_dyn come nel tuo codice) ...
-    # Assumo tu abbia già definito 'f', 'inv_dyn', 'tau_min', 'tau_max', 'lbx', 'ubx', etc.
-    
+def build_ocp_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, q_lim):
+   
     opti = cs.Opti()
     
-    # Variabili di ottimizzazione
+    # optimization variables
     X = opti.variable(nx, N+1)
     U = opti.variable(nu, N)
     
@@ -29,6 +26,8 @@ def build_ocp_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx):
         opti.subject_to(X[:, i+1] == f(X[:, i], U[:, i]))
         # add torque constraint
         opti.subject_to(opti.bounded(tau_min, inv_dyn(X[:, i], U[:, i]), tau_max))
+        # Physical constraints (q > q_lim)
+        opti.subject_to(X[:nv, i] >= q_lim)
 
     # Initial constraint: X0 must be equal to the parameter P_init
     opti.subject_to(X[:, 0] == P_init)
@@ -36,20 +35,20 @@ def build_ocp_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx):
     # Terminal constraint (set S): both joint velocities are zero at final time
     opti.subject_to(X[nv:, N] == 0)
     
-    # create a final state equal to 0
-    q_final = X[:nq, N]
-    v_zero  = cs.MX.zeros(nv)
-    a_zero  = cs.MX.zeros(nv)
-    x_final_static = cs.vertcat(q_final, v_zero)
-    # find the value of the torque to have a zero final state and acceleration
-    tau_hold = inv_dyn(x_final_static, a_zero)
-    # this torque must be within th torque limits
-    opti.subject_to(opti.bounded(tau_min, tau_hold, tau_max))
+    # # create a final state equal to 0
+    # q_final = X[:nq, N]
+    # v_zero  = cs.MX.zeros(nv)
+    # a_zero  = cs.MX.zeros(nv)
+    # x_final_static = cs.vertcat(q_final, v_zero)
+    # # find the value of the torque to have a zero final state and acceleration
+    # tau_hold = inv_dyn(x_final_static, a_zero)
+    # # this torque must be within th torque limits
+    # opti.subject_to(opti.bounded(tau_min, tau_hold, tau_max))
     
-    # Bounds on joint position and velocity
-    # we don't limit X[0], because it's the initial sampled state 
-    # X[:, 1:] take each row (pos+vel) and every column except of column 0 (state at 0)
-    opti.subject_to(opti.bounded(lbx, X[:, 1:], ubx))
+    # # Bounds on joint position and velocity
+    # # we don't limit X[0], because it's the initial sampled state 
+    # # X[:, 1:] take each row (pos+vel) and every column except of column 0 (state at 0)
+    # opti.subject_to(opti.bounded(lbx, X[:, 1:], ubx))
     
     # Cost function
     opti.minimize(1) 
@@ -62,7 +61,7 @@ def build_ocp_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx):
     return opti, P_init, X, U
 
 
-def generate_dataset_double(n_samples=5000, N=50):
+def generate_dataset_double(n_samples=5000, N=25):
 
     # 0. Create data folder if it doesn't exist
     folder = "data"
@@ -94,6 +93,10 @@ def generate_dataset_double(n_samples=5000, N=50):
 
     vMax = np.array([10.0, 10.0])
     vMin = -vMax
+
+    # Definition of a physical constraint (mechanical constraint)
+    DELTA = 0.05
+    q_lim = np.array([-(np.pi+DELTA), -(0.0+DELTA)])
 
 
     
@@ -129,7 +132,7 @@ def generate_dataset_double(n_samples=5000, N=50):
     # I know that if I have tauMax >= total_torque, all the x axis (q = 0) is control inariant,
     #to complicate the things I apply a scaling factor so in some states the double pendulum isn't able to compenstate its weight
     
-    Torque_scaling = 0.5
+    Torque_scaling = 0.85
     tauMax = np.array([total_torque * Torque_scaling, total_torque * Torque_scaling ])
     tauMin = -tauMax
 
@@ -168,7 +171,7 @@ def generate_dataset_double(n_samples=5000, N=50):
 
     print("Construction of the OCP solver")
     opti, param_x_init, X_var, U_var = build_ocp_solver(
-        N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx)
+        N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, q_lim)
 
     print(f"Dataset generation double pendulum ({n_samples} samples)...")
     data_x, data_y = [], []

@@ -4,43 +4,15 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset, random_split
+from neural_network import NeuralNetwork
 
-# --- 1. DEFINIZIONE RETE NEURALE (Come prima) ---
-class NeuralNetwork(nn.Module):
-    def __init__(self, input_size, hidden_size=32, output_size=1, activation=nn.Tanh()):
-        super(NeuralNetwork, self).__init__()
-        self.linear_stack = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            activation,
-            nn.Linear(hidden_size, output_size)
-        )
-        # Upper bound (moltiplicatore finale)
-        self.ub = torch.ones((output_size, 1))
-        self.initialize_weights()
-
-    def forward(self, x):
-        self.ub = self.ub.to(x.device)
-        if x.ndimension() == 1:
-            x = x.view(1, -1)
-        elif x.ndimension() == 2 and x.shape[0] == 4 and x.shape[1] != 4:
-            x = x.T
-        out = self.linear_stack(x) * self.ub
-        return out
-
-    def initialize_weights(self):
-        for layer in self.linear_stack:
-            if isinstance(layer, nn.Linear):
-                nn.init.xavier_normal_(layer.weight)
-                nn.init.zeros_(layer.bias)
-
-# --- 2. FUNZIONE DI TRAINING ---
 def train_friend_style(dataset_path, model_save_path, epochs=100):
-    # Controllo esistenza file
+    # 1. CARICAMENTO DATI (.npz)
     if not os.path.exists(dataset_path):
-        print(f"⚠️  Dataset NON trovato: {dataset_path} -> Salto questo task.")
+        print(f"⚠️  Dataset NON trovato: {dataset_path}")
         return
 
-    print(f"\n>>> 📂 Caricamento dataset: {dataset_path}")
+    print(f"\n>>> Caricamento dataset: {dataset_path}")
     data = np.load(dataset_path)
     X_np = data['x']
     y_np = data['y']
@@ -49,25 +21,25 @@ def train_friend_style(dataset_path, model_save_path, epochs=100):
     states = torch.tensor(X_np, dtype=torch.float32)
     labels = torch.tensor(y_np, dtype=torch.float32).reshape(-1, 1)
     
-    # Statistiche rapide
-    print(f"    Campioni totali: {len(states)}")
+    # Controlliamo quanti dati abbiamo
+    print(f"Campioni totali: {len(states)}")
     n_ones = torch.sum(labels == 1).item()
-    print(f"    Punti 'Feasible' (1): {n_ones} ({n_ones/len(states):.1%})")
+    print(f"Punti 'Feasible' (1): {n_ones} ({n_ones/len(states):.1%})")
 
-    # Dataset e Split (80% Train, 20% Test)
+    # Dataset e Split
     full_dataset = TensorDataset(states, labels)
     train_size = int(0.8 * len(full_dataset))
     test_size = len(full_dataset) - train_size
     train_dataset, test_dataset = random_split(full_dataset, [train_size, test_size])
 
-    # DataLoader
+    # DataLoader (Batch size 32 come il tuo amico)
     batch_size = 32 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    # Setup Modello
+    # 2. SETUP MODELLO "SEMPLICE"
     input_size = 4  
-    hidden_size = 32
+    hidden_size = 32 # Neuroni standard codice amico
     output_size = 1
     
     model = NeuralNetwork(input_size, hidden_size, output_size, activation=nn.Tanh())
@@ -78,9 +50,9 @@ def train_friend_style(dataset_path, model_save_path, epochs=100):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
-    print(f"    🚀 Avvio training per {epochs} epoche...")
+    # 3. TRAINING LOOP
+    print(f"Avvio training per {epochs} epoche...")
 
-    # Training Loop
     for epoch in range(epochs):
         model.train()
         total_loss = 0
@@ -97,8 +69,8 @@ def train_friend_style(dataset_path, model_save_path, epochs=100):
             
             total_loss += loss.item()
         
-        # Validazione ogni 20 epoche
-        if (epoch + 1) % 20 == 0:
+        # Validazione periodica
+        if (epoch + 1) % 10 == 0:
             model.eval()
             with torch.no_grad():
                 correct = 0
@@ -112,32 +84,38 @@ def train_friend_style(dataset_path, model_save_path, epochs=100):
             
             avg_loss = total_loss / len(train_loader)
             accuracy = correct / total
-            print(f"    Epoch [{epoch + 1}/{epochs}] | Loss: {avg_loss:.4f} | Test Acc: {accuracy:.2%}")
+            print(f"Epoch [{epoch + 1}/{epochs}] | Loss: {avg_loss:.4f} | Test Acc: {accuracy:.2%}")
 
-    # Salvataggio
+    # 4. SALVATAGGIO
     save_dir = os.path.dirname(model_save_path)
     if save_dir and not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
     torch.save({'model': model.state_dict()}, model_save_path)
-    print(f"    ✅ Modello salvato in: {model_save_path}")
+    print(f"✅ Modello salvato in: {model_save_path}")
 
-# --- 3. MAIN CONFIGURATION ---
 def train_everything():
-    # LISTA DEI TASK AGGIORNATA
+    # LISTA DEI TASK (Solo i 3 dataset che hai)
     tasks = [
-        {"dataset": "data/dataset_dp_25.npz",  "model": "models/model_dp_25.pt",  "epochs": 200},
-        {"dataset": "data/dataset_dp_50.npz",  "model": "models/model_dp_50.pt",  "epochs": 200},
-        {"dataset": "data/dataset_dp_100.npz", "model": "models/model_dp_100.pt", "epochs": 200},
-        {"dataset": "data/dataset_dp_200.npz", "model": "models/model_dp_200.pt", "epochs": 200},
-        
+        {
+            "dataset": "data/dataset_dp_friend2_200.npz",  # Quello da 5000, N=200, Torque=Full
+            "model": "nn_models/model_dp_friend2_200.pt", 
+            "epochs": 100
+        },
+        {
+            "dataset": "data/dataset_dp_friend_200.npz",   # Quello da 5000, N=200, Torque=Half
+            "model": "nn_models/model_dp_friend_200.pt",
+            "epochs": 100
+        },
+        {
+            "dataset": "data/dataset_dp_friend_50.npz",    # Quello da 3000, N=50 (Va bene anche con pochi dati)
+            "model": "nn_models/model_dp_friend_50.pt",
+            "epochs": 100
+        }
     ]
 
-    print("--- INIZIO TRAINING MULTIPLO ---")
-    for i, task in enumerate(tasks):
-        print(f"\n🔹 TASK {i+1}/{len(tasks)}")
+    for task in tasks:
         train_friend_style(task["dataset"], task["model"], task["epochs"])
-    print("\n--- TUTTI I TRAINING COMPLETATI ---")
 
 if __name__ == "__main__":
     train_everything()
