@@ -27,7 +27,7 @@ def build_ocp_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, 
         # add torque constraint
         opti.subject_to(opti.bounded(tau_min, inv_dyn(X[:, i], U[:, i]), tau_max))
         # Physical constraints (q > q_lim)
-        opti.subject_to(X[:nv, i] >= q_lim)
+        opti.subject_to(X[:nq, i] >= q_lim)
 
     # Initial constraint: X0 must be equal to the parameter P_init
     opti.subject_to(X[:, 0] == P_init)
@@ -45,10 +45,10 @@ def build_ocp_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, 
     # # this torque must be within th torque limits
     # opti.subject_to(opti.bounded(tau_min, tau_hold, tau_max))
     
-    # # Bounds on joint position and velocity
-    # # we don't limit X[0], because it's the initial sampled state 
-    # # X[:, 1:] take each row (pos+vel) and every column except of column 0 (state at 0)
-    # opti.subject_to(opti.bounded(lbx, X[:, 1:], ubx))
+    # Bounds on joint position and velocity
+    # we don't limit X[0], because it's the initial sampled state 
+    # X[:, 1:] take each row (pos+vel) and every column except of column 0 (state at 0)
+    opti.subject_to(opti.bounded(lbx, X[:, 1:], ubx))
     
     # Cost function
     opti.minimize(1) 

@@ -4,43 +4,17 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset, random_split
+from neural_network import NeuralNetwork
 
-# --- 1. DEFINIZIONE RETE NEURALE (Come prima) ---
-class NeuralNetwork(nn.Module):
-    def __init__(self, input_size, hidden_size=32, output_size=1, activation=nn.Tanh()):
-        super(NeuralNetwork, self).__init__()
-        self.linear_stack = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            activation,
-            nn.Linear(hidden_size, output_size)
-        )
-        # Upper bound (moltiplicatore finale)
-        self.ub = torch.ones((output_size, 1))
-        self.initialize_weights()
-
-    def forward(self, x):
-        self.ub = self.ub.to(x.device)
-        if x.ndimension() == 1:
-            x = x.view(1, -1)
-        elif x.ndimension() == 2 and x.shape[0] == 4 and x.shape[1] != 4:
-            x = x.T
-        out = self.linear_stack(x) * self.ub
-        return out
-
-    def initialize_weights(self):
-        for layer in self.linear_stack:
-            if isinstance(layer, nn.Linear):
-                nn.init.xavier_normal_(layer.weight)
-                nn.init.zeros_(layer.bias)
 
 # --- 2. FUNZIONE DI TRAINING ---
 def train_friend_style(dataset_path, model_save_path, epochs=100):
     # Controllo esistenza file
     if not os.path.exists(dataset_path):
-        print(f"⚠️  Dataset NON trovato: {dataset_path} -> Salto questo task.")
+        print(f"Dataset NON trovato: {dataset_path} -> Salto questo task.")
         return
 
-    print(f"\n>>> 📂 Caricamento dataset: {dataset_path}")
+    print(f"\n>>> Caricamento dataset: {dataset_path}")
     data = np.load(dataset_path)
     X_np = data['x']
     y_np = data['y']
@@ -78,7 +52,7 @@ def train_friend_style(dataset_path, model_save_path, epochs=100):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
-    print(f"    🚀 Avvio training per {epochs} epoche...")
+    print(f" Avvio training per {epochs} epoche...")
 
     # Training Loop
     for epoch in range(epochs):
