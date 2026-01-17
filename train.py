@@ -94,16 +94,16 @@ def train_friend_style(dataset_path, model_save_path, epochs=100):
         os.makedirs(save_dir)
 
     torch.save({'model': model.state_dict()}, model_save_path)
-    print(f"    ✅ Modello salvato in: {model_save_path}")
+    print(f"     Modello salvato in: {model_save_path}")
 
 # --- 3. MAIN CONFIGURATION ---
 def train_everything():
     # LISTA DEI TASK AGGIORNATA
     tasks = [
         {"dataset": "data/dataset_dp_25.npz",  "model": "models/model_dp_25.pt",  "epochs": 200},
-        {"dataset": "data/dataset_dp_50.npz",  "model": "models/model_dp_50.pt",  "epochs": 200},
-        {"dataset": "data/dataset_dp_100.npz", "model": "models/model_dp_100.pt", "epochs": 200},
-        {"dataset": "data/dataset_dp_200.npz", "model": "models/model_dp_200.pt", "epochs": 200},
+        #{"dataset": "data/dataset_dp_50.npz",  "model": "models/model_dp_50.pt",  "epochs": 200},
+        #{"dataset": "data/dataset_dp_100.npz", "model": "models/model_dp_100.pt", "epochs": 200},
+        #{"dataset": "data/dataset_dp_200.npz", "model": "models/model_dp_200.pt", "epochs": 200},
         
     ]
 

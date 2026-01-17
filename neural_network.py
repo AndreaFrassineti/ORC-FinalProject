@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from casadi import MX, Function
+from casadi import exp
 import l4casadi as l4c
 import os
 
@@ -69,6 +70,9 @@ class NeuralNetwork(nn.Module):
                                       name=f'{robot_name}_model',
                                       build_dir=os.path.join(NN_DIR, f'nn_{robot_name}'))
 
-        self.nn_model = self.l4c_model(state)
-        self.nn_func = Function('nn_func', [state], [self.nn_model])
+        logits = self.l4c_model(state)
+        # Trasforma i numeri da -inf/+inf a 0/1
+        sigmoid_output = 1 / (1 + exp(-logits))
+        
+        self.nn_func = Function('nn_func', [state], [sigmoid_output])
         return self.nn_func

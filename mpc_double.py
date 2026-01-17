@@ -1,280 +1,424 @@
-import casadi as cs
+import os
+import sys
+import time
 import numpy as np
-import torch
+import casadi as cs
 import pinocchio as pin
+from pinocchio import casadi as cspin
 from example_robot_data import load
 from adam.casadi.computations import KinDynComputations
-import l4casadi as l4c
-import time
-import os
 import matplotlib.pyplot as plt
-from neural_network import NeuralNetwork 
-from orc.utils.robot_wrapper import RobotWrapper
-from orc.utils.robot_simulator import RobotSimulator
-from orc.utils.viz_utils import addViewerSphere, applyViewerConfiguration
+from termcolor import colored
 
-class SimConfig:
-    def __init__(self, nq):
-        self.nq = nq
-        self.q0 = np.zeros(nq)
-        self.dt = 0.01 # Passo di simulazione (lo allineiamo al DT dell'MPC)
-        self.simulate_coulomb_friction = 0
-        self.simulation_type = 'euler'
-        self.tau_coulomb_max = np.zeros(nq)
-        self.randomize_robot_model = 0
-        self.use_viewer = True
-        self.which_viewer = 'meshcat'
-        self.simulate_real_time = 1
-        self.show_floor = False
-        self.DISPLAY_T = 0.02
+try:
+    from train import NeuralNetwork
+    from utils.robot_simulator import RobotSimulator
+    from utils.robot_wrapper import RobotWrapper
+    import conf_doublep as conf_doublep 
+except ImportError:
+    print("ERROR: Ensure train.py and utils are accessible.")
+    sys.exit(1)
 
-# --- CONFIGURATION ---
 ROBOT_NAME = "double_pendulum"
-# Note: The logic in neural_network.py expects the file to be named "model_{robot_name}.pt" inside NN_DIR
-# So we define the suffix here to match your file "model_dp_50.pt"
-MODEL_SUFFIX = "dp_50" 
-NN_DIR = "models"      # Folder where the .pt file is located
-BUILD_DIR = "nn_build" # Temporary folder for L4CasADi compilation
+NN_MODEL_NAME = "dp_200" # Name of the model
+NN_DIR = "models"       # Folder where the model is stored
 
-N_MPC = 30     # MPC Horizon (can be shorter than training horizon!)
-DT = 0.010     # Same DT as training
-SIM_STEPS = 300 # Simulation duration
+# MPC Parameters
+N_MPC = 30              # MPC Horizon (short)
+DT = 0.010              # Integration step, same as dataset generation
+PROB_THRESHOLD = 0.5    # Neural Network safety threshold
 
-# Safety threshold.
-# The network outputs logits. Sigmoid(0) = 0.5.
-# > 0.0 implies probability > 50%.
-# > 2.0 implies probability > 88% (more conservative).
-SAFETY_THRESHOLD = 0.5 
+# Cost weights
+W_POS = 1e3   # Position
+W_VEL = 1e-1  # Velocity
+W_ACC = 1e-4  # Acceleration
 
-print("--- LOADING ROBOT MODEL ---")
-robot = load(ROBOT_NAME)
-model = robot.model
-data = model.createData()
-joints_name_list = [s for s in robot.model.names[1:]] # skip the first name because it is "universe"
-
-nq = model.nq
-nv = model.nv
-nx = 2 * nq
-nu = nv
-
-conf = SimConfig(nq)
-
-# --- LOAD THE BACKWARD REACHABLE SET (NEURAL NETWORK) ---
-# Here we modify the "Train" call to use the NeuralNetwork class correctly
-# as defined in your neural_network.py file.
-print("--- LOADING NEURAL NETWORK & L4CasADi ---")
-net = NeuralNetwork(input_size=nx)
-
-# This function (from your neural_network.py) loads weights and creates the CasADi function
-# It looks for: os.path.join(NN_DIR, f'model_{robot_name}.pt')
-# So we pass "dp_50" as robot_name so it finds "models/model_dp_50.pt"
-backward_set = net.create_casadi_function(robot_name=MODEL_SUFFIX, 
-                                          NN_DIR=NN_DIR, 
-                                          input_size=nx, 
-                                          load_weights=True)
-
-
-def build_mpc_with_nn(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, q_lim, backward_set_func, target_q):
-   
+# Solver construction
+def build_mpc_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, q_lim, nn_constraint_fun, target_q):
+    
     opti = cs.Opti()
     
-    # optimization variables
-    X = opti.variable(nx, N+1)
-    U = opti.variable(nu, N)
+    # Decision variables
+    X = opti.variable(nx, N+1) 
+    U = opti.variable(nu, N) 
+    
     P_init = opti.parameter(nx)
+    P_target = opti.parameter(nq) 
     
-    # cost
-    cost = 0
+    # Initial State Constraint
+    opti.subject_to(X[:, 0] == P_init)
     
-    # weights of the cost function
-    W_pos = 100.0   # position
-    W_vel = 1e-8    # velocity
-    W_acc = 1e-4   # acceleration
-    
+    # Dynamics & Physical Constraints Loop
     for i in range(N):
-        # dynamics
         opti.subject_to(X[:, i+1] == f(X[:, i], U[:, i]))
         
-        # add torque constraints 
-        # Using the KinDyn inverse dynamics passed as argument
-        opti.subject_to(opti.bounded(tau_min, inv_dyn(X[:, i], U[:, i]), tau_max))
+        tau_val = inv_dyn(X[:, i], U[:, i])
+        opti.subject_to(opti.bounded(tau_min, tau_val, tau_max))
         
         # Physical constraints (q > q_lim)
         opti.subject_to(X[:nq, i+1] >= q_lim)
-        
-    
-        # error on the position
-        e_pos = X[:nq, i] - target_q
-        v_k = X[nq:, i]
-        a_k = U[:, i]
 
-        cost += W_pos * cs.sumsqr(e_pos) 
-        cost += W_vel * cs.sumsqr(v_k) 
-        cost += W_acc * cs.sumsqr(a_k)
-
-    # Initial constraint: X0 must be equal to the parameter P_init
-    opti.subject_to(X[:, 0] == P_init)
-    
     # Bounds on joint position and velocity
-    # we don't limit X[0], because it's the initial sampled state 
-    # X[:, 1:] take each row (pos+vel) and every column except of column 0 (state at 0)
     opti.subject_to(opti.bounded(lbx, X[:, 1:], ubx))
-
     
-    # Terminal constraint (set S): both joint velocities are zero at final time
-    # opti.subject_to(X[nv:, N] == 0) 
-    # in my opinion this shouldn't be here, because I built the other one on purpose
-    # (Leaving it commented out as per your intuition)
-
-    # Terminal constraint (Neural Network)
-    # We apply the learned function to the final state X[:, N]
-    opti.subject_to(backward_set_func(X[:, N]) >= SAFETY_THRESHOLD)
+    # TERMINAL CONSTRAINT (Neural Network)
+    # Applies the function learned by the neural network
+    # If > 0.5, the point belongs to the Backward Reachable Set (BRS)
+    final_state = X[:, N]
+    opti.subject_to(nn_constraint_fun(final_state) >= PROB_THRESHOLD)
+    
+    # --- COST FUNCTION ---
+    cost = 0
+    for i in range(N):
+        # Position error
+        e_pos = X[:nq, i] - P_target
+        # Velocity
+        v_curr = X[nq:, i]
+        # Acceleration (proxy for effort)
+        acc = U[:, i]
+        
+        cost += W_POS * cs.sumsqr(e_pos)
+        cost += W_VEL * cs.sumsqr(v_curr)
+        cost += W_ACC * cs.sumsqr(acc)
+    
+    # Terminal cost (Optional)
+    # cost += 10 * W_VEL * cs.dot(X[nq:, N], X[nq:, N]) # Brake at the end
     
     opti.minimize(cost)
     
-    # Solver options (IPOPT for non-linearity)
-    opts = {'ipopt.print_level': 0, 'print_time': 0, 'ipopt.tol': 1e-3, 'detect_simple_bounds': True}
+    # --- SOLVER SETTINGS (IPOPT) ---
+    opts = {
+        'ipopt.print_level': 0, 
+        'print_time': 0, 
+        'ipopt.tol': 1e-4, 
+        'ipopt.max_iter': 100,
+        'detect_simple_bounds': True,
+        # 'ipopt.hessian_approximation': 'limited-memory' # Uncomment if slow
+    }
     opti.solver('ipopt', opts)
     
-    return opti, P_init, X, U
+    return opti, P_init, P_target, X, U
 
-def main_mpc():
-    
-    # Limits (copied from your generation script)
-    # The wall
-    q_lim_phys = np.array([-(np.pi+0.05), -(0.0+0.05)]) 
-    
-    # Target: We want to go VERY close to the wall.
-    # E.g. 0.1 rad distance from the wall
-    q_target = q_lim_phys + np.array([0.1, 0.1]) 
-    
-    print(f"Target Position: {q_target}")
+# --- MAIN ---
+def main():
+    # 1. Load Robot & Model
+    print("--- LOADING ROBOT ---")
+    robot = load(ROBOT_NAME)
+    model = robot.model
+    data = model.createData()
+    joints_name_list = [s for s in robot.model.names[1:]]
 
-    # Torque Limits
-    # Assuming the same values used in data generation
-    # You might want to retrieve exact values, but here is a reasonable override or calculation
-    tau_lim_val = 6.0 
-    tau_min = [-tau_lim_val] * nu
-    tau_max = [tau_lim_val] * nu
-
-    # State bounds (infinity for now, except physical ones handled in constraints)
-    lbx = [-np.inf]*nx
-    ubx = [np.inf]*nx
+    nq = model.nq
+    nv = model.nv
+    nx = 2 * nq
+    nu = nv
     
-    # --- CasADi Dynamics Setup (Preserving KinDyn) ---
-    q = cs.SX.sym('q', nq)
-    dq = cs.SX.sym('dq', nv)
-    ddq = cs.SX.sym('ddq', nv)
-    state = cs.vertcat(q, dq)
-    rhs = cs.vertcat(dq, ddq)
-    f = cs.Function('f', [state, ddq], [state + DT * rhs])
+    # Physical inspection of the model to find torque bounds
+    accumulated_length = 0.0
+    total_torque = 0.0
+    g = 9.81
+    
+    for i in range(1, model.njoints):  
+        inertia = model.inertias[i]
+        mass = inertia.mass
+        com_local = inertia.lever[2]  
+        link_length = np.linalg.norm(model.jointPlacements[i].translation)
+        lever_arm = accumulated_length + abs(com_local)
+        tau_g = mass * g * lever_arm
+        total_torque += tau_g
+        accumulated_length += link_length
+    
+    Torque_scaling = 2.0
+    
+    tau_lim_abs = total_torque * Torque_scaling
+    tau_max_list = [tau_lim_abs] * nu
+    tau_min_list = [-tau_lim_abs] * nu
+    
+    vMax = np.array([10.0, 10.0])
+    vMin = -vMax
+    qMin = np.array([-2.0*np.pi, -2.0*np.pi])
+    qMax = -qMin
+    
+    lbx = qMin.tolist() + vMin.tolist()
+    ubx = qMax.tolist() + vMax.tolist()
+    
+    # Wall limits
+    DELTA = 0.05
+    q_lim = np.array([-(np.pi+DELTA), -(0.0+DELTA)])
+    
+    # Target (set near wall limits to test behavior)
+    q_des_val = np.array([-np.pi + 0.2, 0.0]) 
 
-    # create a Casadi inverse dynamics function
+    # CasADi Dynamics Functions
+    q_sym = cs.SX.sym('q', nq)
+    dq_sym = cs.SX.sym('dq', nv)
+    ddq_sym = cs.SX.sym('ddq', nu)
+    state_sym = cs.vertcat(q_sym, dq_sym)
+    rhs = cs.vertcat(dq_sym, ddq_sym)
+    f_dyn = cs.Function('f', [state_sym, ddq_sym], [state_sym + DT * rhs])
+    
     kinDyn = KinDynComputations(robot.urdf, joints_name_list)
-    H_b = cs.SX.eye(4)     # base configuration
-    v_b = cs.SX.zeros(6)   # base velocity
+    H_b = cs.SX.eye(4)
+    v_b = cs.SX.zeros(6)
     bias_forces = kinDyn.bias_force_fun()
     mass_matrix = kinDyn.mass_matrix_fun()
-    # discard the first 6 elements because they are associated to the robot base
-    h = bias_forces(H_b, q, v_b, dq)[6:]
-    M = mass_matrix(H_b, q)[6:,6:]
-    tau = M @ ddq + h
-    inv_dyn = cs.Function('inv_dyn', [state, ddq], [tau])
-    
-    
-    # --- BUILD MPC SOLVER ---
-    print("--- Building MPC Solver ---")
-    opti, P_init, X_var, U_var = build_mpc_with_nn(
-        N_MPC, nx, nu, nq, nv, f, inv_dyn, 
-        tau_min, tau_max, lbx, ubx, q_lim_phys, 
-        backward_set, q_target
+    h = bias_forces(H_b, q_sym, v_b, dq_sym)[6:]
+    M = mass_matrix(H_b, q_sym)[6:,6:]
+    tau_expr = M @ ddq_sym + h
+    inv_dyn = cs.Function('inv_dyn', [state_sym, ddq_sym], [tau_expr])
+
+    # Neural Network
+    print("--- LOADING NEURAL NETWORK ---")
+    net = NeuralNetwork(input_size=nx)
+    # Load CasADi function
+    brs_fun = net.create_casadi_function(
+        robot_name=NN_MODEL_NAME, 
+        NN_DIR=NN_DIR, 
+        input_size=nx, 
+        load_weights=True
     )
-
-    # --- SIMULATION LOOP ---
-    # Initial state: Pendulum at rest far from the wall
-    current_x = np.array([0.0, 0.0, 0.0, 0.0]) 
     
-    history_x = [current_x]
-
+    # 5. Build MPC
+    print("--- BUILDING MPC ---")
+    opti, P_init, P_target, X, U = build_mpc_solver(
+        N_MPC, nx, nu, nq, nv, f_dyn, inv_dyn, 
+        tau_min_list, tau_max_list, lbx, ubx, q_lim, 
+        brs_fun, q_des_val
+    )
+    
+    # 6. Init Simulation
     r = RobotWrapper(robot.model, robot.collision_model, robot.visual_model)
-    simu = RobotSimulator(conf, r)
-    simu.init(current_x[:nq], current_x[nq:])
-    simu.display(current_x[:nq])
+    simu = RobotSimulator(conf_doublep, r)
 
-    # Creazione sfera target verde
-    pin.forwardKinematics(model, data, q_target)
-    pin.updateFramePlacements(model, data)
-    ee_id = model.nframes - 1
-    ee_pos = data.oMf[ee_id].translation
+    print("--- SEARCHING FOR SAFE INITIAL STATE (BwRS Check) ---")
     
-    addViewerSphere(r.viz, 'world/target', 0.1, [0, 1, 0, 0.5])
-    applyViewerConfiguration(r.viz, 'world/target', ee_pos.tolist() + [0, 0, 0, 1])
+    max_retries = 10000
+    found_safe = False
+
+    for attempt in range(max_retries):
+        
+        # q1: Between -2.5 and 0.0 (OK, far from wall q1_lim approx -3.14)
+        q1_rnd = np.random.uniform(-2.5, 0.0)
+        
+        # q2: You wanted between -1.0 and 1.0. 
+        # BUT WARNING: Wall limit is q_lim[1] (approx -0.05).
+        # So we generate q2 ONLY above the wall (+ small margin 0.05).
+        q2_rnd = np.random.uniform(0.05, 1.0)
+        
+        # Velocity: Between -3 and 3 (OK, energetic)
+        dq1_rnd = np.random.uniform(-3.0, 3.0)
+        dq2_rnd = np.random.uniform(-3.0, 3.0)
+        
+        candidate_state = np.array([q1_rnd, q2_rnd, dq1_rnd, dq2_rnd])
+
+        # --- 2. Check Neural Network ---
+        # We ask: "With this high velocity, can I brake in time?"
+        safety_prob = brs_fun(candidate_state).full().item()
+        
+        # --- 3. Validation ---
+        if safety_prob >= PROB_THRESHOLD:
+            print(colored(f"Safe State Found after {attempt} attempts!", "green"))
+            print(f"State: q=[{q1_rnd:.2f}, {q2_rnd:.2f}], v=[{dq1_rnd:.2f}, {dq2_rnd:.2f}]")
+            print(f"Safety Probability: {safety_prob:.4f}")
+            
+            q0 = candidate_state[:nq]
+            dq0 = candidate_state[nq:]
+            x_curr = candidate_state
+            found_safe = True
+            break
+            
+    if not found_safe:
+        print(colored("Unable to find a valid safe state. Using default state.", "red"))
+        q0 = np.array([-1.5, 0.5]) # A definitely safe point
+        dq0 = np.zeros(nv)
+        x_curr = np.concatenate([q0, dq0])
+
+    simu.init(q0, dq0)
+    simu.display(q0)
     
-    print("Opening Meshcat...")
-    time.sleep(1.0) 
+    # --- COMMENTED OUT TO AVOID OVERWRITING THE FOUND SAFE STATE ---
+    # Random initial state (Original code block)
+    # q0 = np.array([0.5, 0.5]) # Far from wall
+    # dq0 = np.zeros(nv)
+    # x_curr = np.concatenate([q0, dq0])
+    # simu.init(q0, dq0)
+    # simu.display(q0)
+    # -------------------------------------------------------------
+
+    time.sleep(1) # Wait for viewer
     
-    print("\n--- Starting MPC Simulation ---")
+    SIM_STEPS = 500
+    
+    # --- LOGGING LISTS ---
+    history_q = []
+    history_v = []    # Added for plotting
+    history_tau = []  # Added for plotting
+    
+    print("--- STARTING SIMULATION ---")
+    
+    # Warm Start Variables
+    sol_X = None
+    sol_U = None
+    
     for t in range(SIM_STEPS):
-        t0 =time.time()
-        opti.set_value(P_init, current_x)
+        t_start = time.time()
         
-        # Warm start (optional but recommended)
-        # opti.set_initial(X_var, ...)
+        # A. Set Parameters
+        opti.set_value(P_init, x_curr)
+        opti.set_value(P_target, q_des_val)
         
+        # B. WARM START STRATEGY
+        if t == 0:
+            # --- LINEAR DECAY STRATEGY (From Dataset Generator) ---
+            # Avoids crash at first step by providing a 'physical' guess
+            # Idea: 'Stop linearly from where you are now'
+            scaling_factor = np.linspace(1.0, 0.0, N_MPC + 1)
+            
+            # Position: stay where you are (static is safer for start)
+            q_guess = np.tile(x_curr[:nq].reshape(-1, 1), (1, N_MPC + 1))
+            
+            # Velocity: scale to zero linearly
+            dq_guess = x_curr[nq:].reshape(-1, 1) * scaling_factor.reshape(1, -1)
+            
+            x_guess = np.vstack((q_guess, dq_guess))
+            
+            opti.set_initial(X, x_guess)
+            opti.set_initial(U, 0.0) # Zero accel
+            print("Init: Linear Decay Warm Start Applied")
+            
+        else:
+            # --- SHIFT STRATEGY (Standard MPC) ---
+            # Take old solution and shift back by 1
+            # Last point is duplicated as guess
+            if sol_X is not None:
+                X_old = sol_X
+                U_old = sol_U
+                
+                # Shift X: [x1, x2, ... xN, xN]
+                X_guess = np.hstack((X_old[:, 1:], X_old[:, -1:]))
+                # Shift U: [u1, u2, ... uN-1, 0] (or copy last)
+                U_guess = np.hstack((U_old[:, 1:], np.zeros((nu, 1))))
+                
+                opti.set_initial(X, X_guess)
+                opti.set_initial(U, U_guess)
+        
+        # C. SOLVE
         try:
             sol = opti.solve()
             
-            # 1. Prendi l'accelerazione ottimale (ddq) dal solver
-            u_acc_opt = sol.value(U_var)[:, 0]
+            # Extract pure numeric values
+            sol_X = sol.value(X)
+            sol_U = sol.value(U)
             
-            # 2. Calcola la coppia (tau) necessaria per quella accelerazione
-            # Usiamo la funzione inv_dyn che hai già creato fuori dal loop
-            tau_opt = inv_dyn(current_x, u_acc_opt).full().flatten()
+            # Optimal Control (Acceleration)
+            u_opt = sol_U[:, 0] # First action
             
-            # 3. SIMULAZIONE FISICA REALE (Come il tuo amico)
-            # Invece di fare next_x = f(...), usiamo il simulatore di Pinocchio
-            dt_sim_physics = 0.002  # Passo fine per la fisica
-            n_substeps = int(DT / dt_sim_physics) # Quanti passi fare (0.01 / 0.002 = 5 passi)
+            # Torque Calculation (Inv Dyn)
+            # Note: inv_dyn accepts DM/SX matrices, convert x_curr to casadi for safety
+            # Use full() to return to numpy
+            tau_opt = inv_dyn(x_curr, u_opt).full().flatten()
             
-            # Applichiamo la coppia al robot
-            simu.simulate(tau_opt, dt_sim_physics, n_substeps)
-            
-            # 4. Leggiamo dove è finito davvero il robot
-            q_real = simu.q
-            v_real = simu.v
-            current_x = np.concatenate([q_real, v_real])
-            
-            history_x.append(current_x)
-
-            # Display e Timing
-            simu.display(current_x[:nq])
-            
-            t1 = time.time()
-            if (t1 - t0) < DT:
-                time.sleep(DT - (t1 - t0))
-            
-            if t % 20 == 0:
-                print(f"Step {t}: q={current_x[:2].round(2)} | Tau={tau_opt.round(2)}")
-            
-                
         except Exception as e:
-            print(f"Solver Failed at step {t}!")
-            # Fallback or break
+            print(colored(f"SOLVER FAILED at step {t}: {e}", "red"))
+            # Fallback (optional): brake everything
+            tau_opt = np.zeros(nu) 
+            # In reality, here you should break loop or use safe policy
             break
 
-    # --- PLOTTING ---
-    hist_np = np.array(history_x)
+        # D. SIMULATE (Pinocchio)
+        # Integrate with small steps for realism
+        dt_sim = 0.002
+        n_substeps = int(DT / dt_sim)
+        simu.simulate(tau_opt, dt_sim, n_substeps)
+        
+        # Update state
+        x_curr = np.concatenate([simu.q, simu.v])
+        
+        # --- DATA LOGGING ---
+        history_q.append(simu.q.copy())
+        history_v.append(simu.v.copy())     # Store velocity
+        history_tau.append(tau_opt.copy())  # Store torque
+        
+        # Timing for real-time visualization
+        elapsed = time.time() - t_start
+        if elapsed < DT:
+            time.sleep(DT - elapsed)
+            
+        if t % 20 == 0:
+            # Check neural constraint
+            nn_val = brs_fun(sol_X[:, -1]).full().item()
+            print(f"Step {t:03d} | Tau: {tau_opt.round(2)} | NN Val: {nn_val:.2f} | Dist: {np.linalg.norm(x_curr[:nq]-q_des_val):.2f}")
+
+    print("Simulation Finished.")
     
+    # --- SAFETY CHECK ---
+    print("\n--- SAFETY CHECK ---")
+    hist_q = np.array(history_q)
+    min_q = np.min(hist_q, axis=0) # Finds the lowest value reached by q1 and q2
+
+    # Check against limits
+    is_safe = np.all(min_q >= q_lim)
+    
+    print(f"Q1 Min: {min_q[0]:.4f} (Limit: {q_lim[0]:.4f}) -> {'OK' if min_q[0] >= q_lim[0] else 'FAIL'}")
+    print(f"Q2 Min: {min_q[1]:.4f} (Limit: {q_lim[1]:.4f}) -> {'OK' if min_q[1] >= q_lim[1] else 'FAIL'}")
+
+    if is_safe:
+        print(colored("SUCCESS: All wall constraints respected!", "green"))
+    else:
+        print(colored("FAILURE: Wall penetration detected!", "red"))
+
+    # --- COMPLETE PLOTTING (SEQUENTIAL) ---
+    hist_q = np.array(history_q)
+    hist_v = np.array(history_v)
+    hist_tau = np.array(history_tau)
+
+    print("Opening POSITION plot... (Close the window to see the next one)")
+    
+    # 1. POSITION PLOT
     plt.figure(figsize=(10, 6))
-    plt.plot(hist_np[:, 0], label="q1")
-    plt.plot(hist_np[:, 1], label="q2")
-    # Draw the wall and the target
-    plt.axhline(y=q_lim_phys[0], color='r', linestyle='--', label="Wall q1")
-    plt.axhline(y=q_target[0], color='g', linestyle=':', label="Target q1")
-    plt.legend()
-    plt.title("MPC with Learned Backward Reachable Set")
-    plt.grid()
+    plt.plot(hist_q[:, 0], label='q1 (Shoulder)', linewidth=2)
+    plt.plot(hist_q[:, 1], label='q2 (Elbow)', linewidth=2)
+    # Plot Wall Limits explicitly
+    plt.axhline(y=q_lim[0], color='r', linestyle='--', label=f'Wall Limit q1 ({q_lim[0]:.2f})')
+    plt.axhline(y=q_lim[1], color='m', linestyle='--', label=f'Wall Limit q2 ({q_lim[1]:.2f})')
+    plt.ylabel("Position [rad]")
+    plt.xlabel("Simulation Steps")
+    plt.title("1/3 - Joint Positions vs Wall Limits")
+    plt.legend(loc='upper right')
+    plt.grid(True)
+    plt.show() # Il codice si ferma qui finché non chiudi la finestra
+
+    print("Opening VELOCITY plot... (Close the window to see the next one)")
+
+    # 2. VELOCITY PLOT
+    plt.figure(figsize=(10, 6))
+    plt.plot(hist_v[:, 0], label='dq1', linewidth=1.5)
+    plt.plot(hist_v[:, 1], label='dq2', linewidth=1.5)
+    # Plot Max Velocity Limits
+    plt.axhline(y=vMax[0], color='k', linestyle=':', label='Max Velocity')
+    plt.axhline(y=-vMax[0], color='k', linestyle=':')
+    plt.ylabel("Velocity [rad/s]")
+    plt.xlabel("Simulation Steps")
+    plt.title("2/3 - Joint Velocities")
+    plt.legend(loc='upper right')
+    plt.grid(True)
+    plt.show() # Il codice si ferma qui finché non chiudi la finestra
+
+    print("Opening TORQUE plot...")
+
+    # 3. TORQUE PLOT
+    plt.figure(figsize=(10, 6))
+    plt.plot(hist_tau[:, 0], label='tau1', linewidth=1.5)
+    plt.plot(hist_tau[:, 1], label='tau2', linewidth=1.5)
+    # Plot Max Torque Limits
+    plt.axhline(y=tau_lim_abs, color='r', linestyle='--', label=f'Max Torque ({tau_lim_abs:.1f})')
+    plt.axhline(y=-tau_lim_abs, color='r', linestyle='--')
+    plt.ylabel("Torque [Nm]")
+    plt.xlabel("Simulation Steps")
+    plt.title("3/3 - Joint Torques")
+    plt.legend(loc='upper right')
+    plt.grid(True)
     plt.show()
 
 if __name__ == "__main__":
-    main_mpc()
+    main()

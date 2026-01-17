@@ -33,9 +33,17 @@ def check_double_pendulum_data(filepath='data/dataset_dp_N.npz'):
     ax[1].set_ylabel('dq2 [rad/s]')
     ax[1].legend()
 
+    # Joint 1: q1 [-3.5, -1.5], dq1 [-6, 6]
+    ax[0].set_xlim(-3.5, -1.5)
+    ax[0].set_ylim(-6.0, 6.0)
+
+    # Joint 2: q2 [-0.5, 1.5], dq2 [-6, 6]
+    ax[1].set_xlim(-0.5, 1.5)
+    ax[1].set_ylim(-6.0, 6.0)
+
     plt.tight_layout()
     plt.show()
 
 # Plot the dataset
 if __name__ == "__main__":
-    check_double_pendulum_data('data/dataset_dp_50.npz')
+    check_double_pendulum_data('data/dataset_dp_25.npz')

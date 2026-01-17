@@ -35,15 +35,7 @@ def build_ocp_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, 
     # Terminal constraint (set S): both joint velocities are zero at final time
     opti.subject_to(X[nv:, N] == 0)
     
-    # # create a final state equal to 0
-    # q_final = X[:nq, N]
-    # v_zero  = cs.MX.zeros(nv)
-    # a_zero  = cs.MX.zeros(nv)
-    # x_final_static = cs.vertcat(q_final, v_zero)
-    # # find the value of the torque to have a zero final state and acceleration
-    # tau_hold = inv_dyn(x_final_static, a_zero)
-    # # this torque must be within th torque limits
-    # opti.subject_to(opti.bounded(tau_min, tau_hold, tau_max))
+    
     
     # Bounds on joint position and velocity
     # we don't limit X[0], because it's the initial sampled state 
@@ -60,13 +52,7 @@ def build_ocp_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, 
     
     return opti, P_init, X, U
 
-
-def generate_dataset_double(n_samples=5000, N=25):
-
-    # 0. Create data folder if it doesn't exist
-    folder = "data"
-    if not os.path.exists(folder):
-        os.makedirs(folder) 
+def get_solver_instance(N=50):
 
     print("--- LOADING ROBOT MODEL ---")
     robot = load("double_pendulum")
@@ -132,12 +118,9 @@ def generate_dataset_double(n_samples=5000, N=25):
     # I know that if I have tauMax >= total_torque, all the x axis (q = 0) is control inariant,
     #to complicate the things I apply a scaling factor so in some states the double pendulum isn't able to compenstate its weight
     
-    Torque_scaling = 0.85
+    Torque_scaling = 1.1
     tauMax = np.array([total_torque * Torque_scaling, total_torque * Torque_scaling ])
     tauMin = -tauMax
-
-   
-    
 
     q = cs.SX.sym('q', nq)
     dq = cs.SX.sym('dq', nv)
@@ -165,17 +148,26 @@ def generate_dataset_double(n_samples=5000, N=25):
     tau_min = tauMin.tolist()  # torque lower bounds
     tau_max = tauMax.tolist()  # torque upper bounds
 
-        
-
-    # 4. Sampling loop
-
     print("Construction of the OCP solver")
     opti, param_x_init, X_var, U_var = build_ocp_solver(
         N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, q_lim)
+    
+    
+    return opti, param_x_init, X_var, U_var, nq, vMax
 
+
+def generate_dataset_double(n_samples=5000, N=25):
+
+    # 0. Create data folder if it doesn't exist
+    folder = "data"
+    if not os.path.exists(folder):
+        os.makedirs(folder) 
+
+    print("Initializing solver...")
+    opti, param_x_init, X_var, U_var, nq, vMax = get_solver_instance(N)
+    
     print(f"Dataset generation double pendulum ({n_samples} samples)...")
     data_x, data_y = [], []
-
     import time
     start_time = time.time()
 
@@ -184,26 +176,20 @@ def generate_dataset_double(n_samples=5000, N=25):
 
     for i in range(n_samples):
         # Random sampling
-        q_rand = np.random.uniform(-qMax, qMax)
-        dq_rand = np.random.uniform(-vMax, vMax)
+        q1_rand = np.random.uniform(-3.5, -1.5)
+        q2_rand = np.random.uniform(-0.5, 1.5)
+        q_rand = np.array([q1_rand, q2_rand])
+        dq_rand = np.random.uniform(-6.0, 6.0, size=2)
         x_start = np.concatenate([q_rand, dq_rand])
         
         # set the value of the parameter to the generated random state
         opti.set_value(param_x_init, x_start)
 
         
-        
+        # warm start logic
         scaling_factor = np.linspace(1.0, 0.0, N + 1)
-
-        # 2. Posizione: Assumiamo costante (o potresti interpolare anche questa)
-        # q_init ha shape (nq,), lo facciamo diventare (nq, N+1)
         q_guess = np.tile(x_start[:nq].reshape(-1, 1), (1, N + 1))
-
-        # 3. Velocità: Scaliamo la velocità iniziale verso zero
-        # dq_init * scaling_factor
         dq_guess = x_start[nq:].reshape(-1, 1) * scaling_factor.reshape(1, -1)
-
-        # 4. Uniamo tutto
         x_guess = np.vstack((q_guess, dq_guess))
 
         # 5. Assegna in un colpo solo

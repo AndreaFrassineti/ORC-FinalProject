@@ -114,10 +114,10 @@ def plot_both_joints_phase_portraits_final(model_files):
 if __name__ == "__main__":
     # LISTA AGGIORNATA CON I TUOI MODELLI REALI
     models = [
-        'models/model_dp_25.pt',
+        #'models/model_dp_25.pt',
         'models/model_dp_50.pt',
-        'models/model_dp_100.pt',
-        'models/model_dp_200.pt'
+        #'models/model_dp_100.pt',
+        #'models/model_dp_200.pt'
     ]
     
     print("Generating plots for Double Pendulum...")
