@@ -1,9 +1,3 @@
-"""
-Created on Thu Apr 18 09:47:07 2019
-
-@author: Andrea Del Prete (andrea.delprete@unitn.it)
-"""
-
 import numpy as np
 np.set_printoptions(precision=2, linewidth=200, suppress=True)
 LINE_WIDTH = 60

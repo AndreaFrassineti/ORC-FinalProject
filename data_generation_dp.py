@@ -1,4 +1,4 @@
-#Same idea as data_generation_p.py but for double pendulum
+
 
 import casadi as cs
 import numpy as np
@@ -192,12 +192,12 @@ def generate_dataset_double(n_samples=5000, N=25):
         dq_guess = x_start[nq:].reshape(-1, 1) * scaling_factor.reshape(1, -1)
         x_guess = np.vstack((q_guess, dq_guess))
 
-        # 5. Assegna in un colpo solo
+        # set the initial value of the optimization problem
         opti.set_initial(X_var, x_guess)
         opti.set_initial(U_var, 0.0)
         
 
-        # 3. Solve
+        # Solve
         try:
             opti.solve()
             label = 1

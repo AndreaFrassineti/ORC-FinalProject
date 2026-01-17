@@ -6,38 +6,31 @@ import l4casadi as l4c
 import os
 
 class NeuralNetwork(nn.Module):
-    """ 
-    Replica ESATTA della rete del tuo amico.
-    Struttura Semplice: Input -> [Linear 32] -> Tanh -> [Linear Output]
-    Nessuna trasformazione trigonometrica (sin/cos).
-    """
+    
     def __init__(self, input_size, hidden_size=32, output_size=1, activation=nn.Tanh()):
         super(NeuralNetwork, self).__init__()
         
-        # Architettura identica al codice "facile"
+        # architecture with 1 hidden layer composed by 32 nodes
         self.linear_stack = nn.Sequential(
             nn.Linear(input_size, hidden_size),
             activation,
             nn.Linear(hidden_size, output_size)
         )
         
-        # Upper bound (moltiplicatore finale)
+        # Upper bound 
         self.ub = torch.ones((output_size, 1))
         
-        # Inizializzazione pesi
+        # weight initialization
         self.initialize_weights()
 
     def forward(self, x):
-        # Sposta ub sullo stesso device di x
         self.ub = self.ub.to(x.device)
         
-        # Gestione input shape (standard friend logic)
         if x.ndimension() == 1:
             x = x.view(1, -1)
         elif x.ndimension() == 2 and x.shape[0] == 4 and x.shape[1] != 4:
             x = x.T
 
-        # Passaggio diretto senza feature engineering
         out = self.linear_stack(x) * self.ub
         return out
 
@@ -47,13 +40,12 @@ class NeuralNetwork(nn.Module):
                 nn.init.xavier_normal_(layer.weight)
                 nn.init.zeros_(layer.bias) 
 
-    # --- Wrapper per L4CasADi (Necessario per l'OCP dopo) ---
+    
     def create_casadi_function(self, robot_name, NN_DIR, input_size, load_weights=True):
         if load_weights:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             nn_name = os.path.join(NN_DIR, f'model_{robot_name}.pt')
             try:
-                # Caricamento robusto (gestisce sia dict che state_dict diretto)
                 checkpoint = torch.load(nn_name, map_location=device)
                 if isinstance(checkpoint, dict) and 'model' in checkpoint:
                     self.load_state_dict(checkpoint['model'])
@@ -71,7 +63,7 @@ class NeuralNetwork(nn.Module):
                                       build_dir=os.path.join(NN_DIR, f'nn_{robot_name}'))
 
         logits = self.l4c_model(state)
-        # Trasforma i numeri da -inf/+inf a 0/1
+        # Transform logits from -inf/+inf to 0/1 (Sigmoid)
         sigmoid_output = 1 / (1 + exp(-logits))
         
         self.nn_func = Function('nn_func', [state], [sigmoid_output])

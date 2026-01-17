@@ -178,7 +178,7 @@ def main():
         load_weights=True
     )
     
-    # 5. Build MPC
+    # Build MPC
     print("--- BUILDING MPC ---")
     opti, P_init, P_target, X, U = build_mpc_solver(
         N_MPC, nx, nu, nq, nv, f_dyn, inv_dyn, 
@@ -186,10 +186,12 @@ def main():
         brs_fun, q_des_val
     )
     
-    # 6. Init Simulation
+    # Init Simulation
     r = RobotWrapper(robot.model, robot.collision_model, robot.visual_model)
     simu = RobotSimulator(conf_doublep, r)
-
+    
+    # here we generate randoma states, we check if the state is feasible 
+    # for the neural network, otherwise we sample another random state until we find a feasible one
     print("--- SEARCHING FOR SAFE INITIAL STATE (BwRS Check) ---")
     
     max_retries = 10000
@@ -197,22 +199,17 @@ def main():
 
     for attempt in range(max_retries):
         
-        # q1: Between -2.5 and 0.0 (OK, far from wall q1_lim approx -3.14)
+        # q1: Between -2.5 and 0.0 
         q1_rnd = np.random.uniform(-2.5, 0.0)
-        
-        # q2: You wanted between -1.0 and 1.0. 
-        # BUT WARNING: Wall limit is q_lim[1] (approx -0.05).
-        # So we generate q2 ONLY above the wall (+ small margin 0.05).
         q2_rnd = np.random.uniform(0.05, 1.0)
         
-        # Velocity: Between -3 and 3 (OK, energetic)
+        # Velocity: Between -3 and 3
         dq1_rnd = np.random.uniform(-3.0, 3.0)
         dq2_rnd = np.random.uniform(-3.0, 3.0)
         
         candidate_state = np.array([q1_rnd, q2_rnd, dq1_rnd, dq2_rnd])
 
-        # --- 2. Check Neural Network ---
-        # We ask: "With this high velocity, can I brake in time?"
+        # check if for the nn is safe
         safety_prob = brs_fun(candidate_state).full().item()
         
         # --- 3. Validation ---
@@ -236,16 +233,8 @@ def main():
     simu.init(q0, dq0)
     simu.display(q0)
     
-    # --- COMMENTED OUT TO AVOID OVERWRITING THE FOUND SAFE STATE ---
-    # Random initial state (Original code block)
-    # q0 = np.array([0.5, 0.5]) # Far from wall
-    # dq0 = np.zeros(nv)
-    # x_curr = np.concatenate([q0, dq0])
-    # simu.init(q0, dq0)
-    # simu.display(q0)
-    # -------------------------------------------------------------
 
-    time.sleep(1) # Wait for viewer
+    time.sleep(1) 
     
     SIM_STEPS = 500
     
@@ -269,27 +258,19 @@ def main():
         
         # B. WARM START STRATEGY
         if t == 0:
-            # --- LINEAR DECAY STRATEGY (From Dataset Generator) ---
-            # Avoids crash at first step by providing a 'physical' guess
-            # Idea: 'Stop linearly from where you are now'
             scaling_factor = np.linspace(1.0, 0.0, N_MPC + 1)
-            
-            # Position: stay where you are (static is safer for start)
             q_guess = np.tile(x_curr[:nq].reshape(-1, 1), (1, N_MPC + 1))
-            
             # Velocity: scale to zero linearly
             dq_guess = x_curr[nq:].reshape(-1, 1) * scaling_factor.reshape(1, -1)
             
             x_guess = np.vstack((q_guess, dq_guess))
             
             opti.set_initial(X, x_guess)
-            opti.set_initial(U, 0.0) # Zero accel
+            opti.set_initial(U, 0.0) 
             print("Init: Linear Decay Warm Start Applied")
             
         else:
-            # --- SHIFT STRATEGY (Standard MPC) ---
             # Take old solution and shift back by 1
-            # Last point is duplicated as guess
             if sol_X is not None:
                 X_old = sol_X
                 U_old = sol_U
@@ -302,7 +283,7 @@ def main():
                 opti.set_initial(X, X_guess)
                 opti.set_initial(U, U_guess)
         
-        # C. SOLVE
+        # SOLVE
         try:
             sol = opti.solve()
             
@@ -310,19 +291,15 @@ def main():
             sol_X = sol.value(X)
             sol_U = sol.value(U)
             
-            # Optimal Control (Acceleration)
+            # Optimal acceleration
             u_opt = sol_U[:, 0] # First action
             
             # Torque Calculation (Inv Dyn)
-            # Note: inv_dyn accepts DM/SX matrices, convert x_curr to casadi for safety
-            # Use full() to return to numpy
             tau_opt = inv_dyn(x_curr, u_opt).full().flatten()
             
         except Exception as e:
             print(colored(f"SOLVER FAILED at step {t}: {e}", "red"))
-            # Fallback (optional): brake everything
             tau_opt = np.zeros(nu) 
-            # In reality, here you should break loop or use safe policy
             break
 
         # D. SIMULATE (Pinocchio)
@@ -372,7 +349,7 @@ def main():
     hist_v = np.array(history_v)
     hist_tau = np.array(history_tau)
 
-    print("Opening POSITION plot... (Close the window to see the next one)")
+    print("Opening POSITION plot... ")
     
     # 1. POSITION PLOT
     plt.figure(figsize=(10, 6))
@@ -386,9 +363,9 @@ def main():
     plt.title("1/3 - Joint Positions vs Wall Limits")
     plt.legend(loc='upper right')
     plt.grid(True)
-    plt.show() # Il codice si ferma qui finché non chiudi la finestra
+    plt.show() 
 
-    print("Opening VELOCITY plot... (Close the window to see the next one)")
+    print("Opening VELOCITY plot... ")
 
     # 2. VELOCITY PLOT
     plt.figure(figsize=(10, 6))
@@ -402,7 +379,7 @@ def main():
     plt.title("2/3 - Joint Velocities")
     plt.legend(loc='upper right')
     plt.grid(True)
-    plt.show() # Il codice si ferma qui finché non chiudi la finestra
+    plt.show() 
 
     print("Opening TORQUE plot...")
 
