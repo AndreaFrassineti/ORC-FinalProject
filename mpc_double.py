@@ -20,13 +20,15 @@ except ImportError:
     sys.exit(1)
 
 ROBOT_NAME = "double_pendulum"
-NN_MODEL_NAME = "dp_200" # Name of the model
+NN_MODEL_NAME = "dp_100" # Name of the model
 NN_DIR = "models"       # Folder where the model is stored
 
 # MPC Parameters
-N_MPC = 30              # MPC Horizon (short)
+N_MPC = 30              # MPC Horizon 
 DT = 0.010              # Integration step, same as dataset generation
 PROB_THRESHOLD = 0.5    # Neural Network safety threshold
+USE_NEURAL_NETWORK = 1  # if is set to 1 use the terminal constraint, otherwise solve the mpc without the nn
+SEED = None  # set the seed to reply the same random state for every N. If it is none the state is complitely random
 
 # Cost weights
 W_POS = 1e3   # Position
@@ -34,7 +36,7 @@ W_VEL = 1e-1  # Velocity
 W_ACC = 1e-4  # Acceleration
 
 # Solver construction
-def build_mpc_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, q_lim, nn_constraint_fun, target_q):
+def build_mpc_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, q_lim, nn_constraint_fun, target_q, use_nn):
     
     opti = cs.Opti()
     
@@ -64,8 +66,9 @@ def build_mpc_solver(N, nx, nu, nq, nv, f, inv_dyn, tau_min, tau_max, lbx, ubx, 
     # TERMINAL CONSTRAINT (Neural Network)
     # Applies the function learned by the neural network
     # If > 0.5, the point belongs to the Backward Reachable Set (BRS)
-    final_state = X[:, N]
-    opti.subject_to(nn_constraint_fun(final_state) >= PROB_THRESHOLD)
+    if use_nn:
+        final_state = X[:, N]
+        opti.subject_to(nn_constraint_fun(final_state) >= PROB_THRESHOLD)
     
     # --- COST FUNCTION ---
     cost = 0
@@ -128,7 +131,7 @@ def main():
         total_torque += tau_g
         accumulated_length += link_length
     
-    Torque_scaling = 2.0
+    Torque_scaling = 1.2
     
     tau_lim_abs = total_torque * Torque_scaling
     tau_max_list = [tau_lim_abs] * nu
@@ -179,57 +182,76 @@ def main():
     )
     
     # Build MPC
-    print("--- BUILDING MPC ---")
+    print("--- BUILDING MPC (USE_NEURAL_NETWORK ={USE_NEURAL_NETWORK}) ---")
     opti, P_init, P_target, X, U = build_mpc_solver(
         N_MPC, nx, nu, nq, nv, f_dyn, inv_dyn, 
         tau_min_list, tau_max_list, lbx, ubx, q_lim, 
-        brs_fun, q_des_val
+        brs_fun, q_des_val, USE_NEURAL_NETWORK
     )
     
     # Init Simulation
     r = RobotWrapper(robot.model, robot.collision_model, robot.visual_model)
     simu = RobotSimulator(conf_doublep, r)
     
-    # here we generate randoma states, we check if the state is feasible 
-    # for the neural network, otherwise we sample another random state until we find a feasible one
-    print("--- SEARCHING FOR SAFE INITIAL STATE (BwRS Check) ---")
-    
-    max_retries = 10000
-    found_safe = False
+    if SEED is not None:
+        np.random.seed(SEED)
+        print(f"Random seed set to: {SEED}")
 
-    for attempt in range(max_retries):
-        
-        # q1: Between -2.5 and 0.0 
+    if USE_NEURAL_NETWORK:
+        # here we generate randoma states, we check if the state is feasible 
+        # for the neural network, otherwise we sample another random state until we find a feasible one
+        print("--- SEARCHING FOR SAFE INITIAL STATE (BwRS Check) ---")
+        max_retries = 10000
+        found_safe = False
+
+        for attempt in range(max_retries):
+            
+            # q1: Between -2.5 and 0.0 
+            q1_rnd = np.random.uniform(-2.5, 0.0)
+            q2_rnd = np.random.uniform(0.05, 1.0)
+            # Velocity: Between -3 and 3
+            dq1_rnd = np.random.uniform(-5.0, 5.0)
+            dq2_rnd = np.random.uniform(-5.0, 5.0)
+            
+            candidate_state = np.array([q1_rnd, q2_rnd, dq1_rnd, dq2_rnd])
+
+            # check if for the nn is safe
+            safety_prob = brs_fun(candidate_state).full().item()
+            
+            # --- 3. Validation ---
+            if safety_prob >= PROB_THRESHOLD:
+                print(colored(f"Safe State Found after {attempt} attempts!", "green"))
+                print(f"State: q=[{q1_rnd:.2f}, {q2_rnd:.2f}], v=[{dq1_rnd:.2f}, {dq2_rnd:.2f}]")
+                print(f"Safety Probability: {safety_prob:.4f}")
+                
+                q0 = candidate_state[:nq]
+                dq0 = candidate_state[nq:]
+                x_curr = candidate_state
+                found_safe = True
+                break
+                
+        if not found_safe:
+            print(colored("Unable to find a valid safe state. Using default state.", "red"))
+            q0 = np.array([-1.5, 0.5]) # A definitely safe point
+            dq0 = np.zeros(nv)
+            x_curr = np.concatenate([q0, dq0])
+
+    else:
+        print("--- GENERATING RANDOM STATE (NO SAFETY CHECK) ---")
         q1_rnd = np.random.uniform(-2.5, 0.0)
         q2_rnd = np.random.uniform(0.05, 1.0)
+        dq1_rnd = np.random.uniform(-5.0, 5.0) 
+        dq2_rnd = np.random.uniform(-5.0, 5.0)
         
-        # Velocity: Between -3 and 3
-        dq1_rnd = np.random.uniform(-3.0, 3.0)
-        dq2_rnd = np.random.uniform(-3.0, 3.0)
-        
-        candidate_state = np.array([q1_rnd, q2_rnd, dq1_rnd, dq2_rnd])
-
-        # check if for the nn is safe
-        safety_prob = brs_fun(candidate_state).full().item()
-        
-        # --- 3. Validation ---
-        if safety_prob >= PROB_THRESHOLD:
-            print(colored(f"Safe State Found after {attempt} attempts!", "green"))
-            print(f"State: q=[{q1_rnd:.2f}, {q2_rnd:.2f}], v=[{dq1_rnd:.2f}, {dq2_rnd:.2f}]")
-            print(f"Safety Probability: {safety_prob:.4f}")
-            
-            q0 = candidate_state[:nq]
-            dq0 = candidate_state[nq:]
-            x_curr = candidate_state
-            found_safe = True
-            break
-            
-    if not found_safe:
-        print(colored("Unable to find a valid safe state. Using default state.", "red"))
-        q0 = np.array([-1.5, 0.5]) # A definitely safe point
-        dq0 = np.zeros(nv)
+        q0 = np.array([q1_rnd, q2_rnd])
+        dq0 = np.array([dq1_rnd, dq2_rnd])
         x_curr = np.concatenate([q0, dq0])
-
+        
+    print(colored(f"--- STARTING STATE CHECK ---", "cyan"))
+    print(f"q0 = [{x_curr[0]:.4f}, {x_curr[1]:.4f}]")
+    print(f"v0 = [{x_curr[2]:.4f}, {x_curr[3]:.4f}]")
+    print("------------------------------")
+        
     simu.init(q0, dq0)
     simu.display(q0)
     
@@ -363,7 +385,8 @@ def main():
     plt.title("1/3 - Joint Positions vs Wall Limits")
     plt.legend(loc='upper right')
     plt.grid(True)
-    plt.show() 
+    plt.show()
+     
 
     print("Opening VELOCITY plot... ")
 
@@ -379,7 +402,8 @@ def main():
     plt.title("2/3 - Joint Velocities")
     plt.legend(loc='upper right')
     plt.grid(True)
-    plt.show() 
+    plt.show()
+     
 
     print("Opening TORQUE plot...")
 
@@ -396,6 +420,7 @@ def main():
     plt.legend(loc='upper right')
     plt.grid(True)
     plt.show()
+    
 
 if __name__ == "__main__":
     main()

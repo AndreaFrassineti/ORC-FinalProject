@@ -1,6 +1,6 @@
 #include <l4casadi.hpp>
 
-L4CasADi l4casadi("/home/alepais/repos/ORC-FinalProject/models/nn_dp_100", "dp_100_model", 4, 1, 1, 1, "cpu", true, true, true, false, true, false);
+L4CasADi l4casadi("/home/frass/FinalProject/models/nn_dp_100", "dp_100_model", 4, 1, 1, 1, "cpu", true, true, true, false, true, false);
 
 #ifdef __cplusplus
 extern "C" {

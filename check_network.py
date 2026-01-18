@@ -74,11 +74,11 @@ def compare_real_and_nn(robot_name, nn_model_dir, input_size, x0, n_tests, horiz
 if __name__ == "__main__":
     current_dir = os.path.dirname(os.path.abspath(__file__))
     nn_model_dir = os.path.join(current_dir, "models")
-    robot_name = "dp_25"
+    robot_name = "dp_200"
     input_size = 4
     x0 = np.array([0.0, 0.0, 0.0, 0.0]) 
     
     NUM_TESTS = 200
-    TRAINING_HORIZON = 25
+    TRAINING_HORIZON = 200
 
     compare_real_and_nn(robot_name, nn_model_dir, input_size, x0, NUM_TESTS, TRAINING_HORIZON)
